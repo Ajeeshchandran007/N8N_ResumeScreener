@@ -1,0 +1,379 @@
+{
+  "name": "My workflow 2",
+  "nodes": [
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": ""
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "63222062-4262-43a4-9184-5636948acefd",
+      "name": "OpenAI Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        976,
+        96
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "RadO6Dy5UeycrQXr",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Resume Content:\n{{ $json.resumeText }}\n\nJob Description:\n{{ $json.jdText }}",
+        "options": {
+          "systemMessage": "You are an expert HR recruiter.\nEvaluate:\n1. Skills Match (0-100)\n2. Experience Match (0-100)\n3. Education Match (0-100)\n4. Overall Fit (0-100)\n\nReturn JSON:\n{\n  \"candidateName\": \"<extract full name from resume>\",\n  \"overallScore\": <avg>,\n  \"skillsScore\": <0-100>,\n  \"experienceScore\": <0-100>,\n  \"educationScore\": <0-100>,\n  \"recommendation\": \"STRONG_MATCH|GOOD_MATCH|MODERATE_MATCH|WEAK_MATCH|NO_MATCH\",\n  \"strengths\": [],\n  \"concerns\": [],\n  \"summary\": \"\"\n}"
+        }
+      },
+      "id": "06764dd4-c012-44e9-88cf-02cb9dfb0f8a",
+      "name": "AI Resume Screening",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        976,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "f01671ce-cb5d-4f79-b256-b49103da2aa9",
+      "name": "Merge JD into Loop",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        704,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {
+          "joinPages": true
+        }
+      },
+      "id": "47e75090-cd98-4d37-8916-cc93c5595cdf",
+      "name": "Extract Resume",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        144,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all binary data keys\nconst binaryKeys = Object.keys($input.item.binary || {});\nconst resumeKeys = binaryKeys.filter(key => key.startsWith('Resume'));\n\nconst output = [];\n\nfor (let i = 0; i < resumeKeys.length; i++) {\n  const binaryKey = resumeKeys[i];\n  const binaryData = $input.item.binary[binaryKey];\n  \n  output.push({\n    json: {\n      filename: binaryData.fileName || `resume_${i}.pdf`,\n      mimetype: binaryData.mimeType || 'application/pdf',\n      size: binaryData.fileSize || 0\n    },\n    binary: {\n      data: binaryData\n    }\n  });\n}\n\nreturn output;"
+      },
+      "id": "326b2bfa-7eec-439f-b443-4c72f9e1ec2b",
+      "name": "Code: Split Resumes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "JobDescription",
+        "options": {
+          "joinPages": true
+        }
+      },
+      "id": "e8806e95-963b-4f66-8d7f-fb62952b74c0",
+      "name": "Extract Job Description",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -64,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "AI Resume Screener",
+        "formDescription": "Upload resumes & job description",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Resume",
+              "fieldType": "file"
+            },
+            {
+              "fieldLabel": "JobDescription",
+              "fieldType": "file",
+              "multipleFiles": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1dab868-712a-406a-b2f4-db5382a59b9e",
+      "name": "Resume Submission Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -448,
+        -160
+      ],
+      "webhookId": "2c4c3b86-e14e-43c5-981c-12a8eb073ffe"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the AI output JSON\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    let evaluation;\n    const output = item.json.output;\n    \n    // Get filename from the item\n    const filename = item.json.filename || 'Unknown File';\n    \n    // Try to parse if it's a string\n    if (typeof output === 'string') {\n      // Remove markdown code blocks and any text before/after JSON\n      let cleanOutput = output.trim();\n      \n      // Remove markdown code blocks\n      cleanOutput = cleanOutput.replace(/```json\\s*/g, '').replace(/```\\s*/g, '');\n      \n      // Find JSON object in the string\n      const jsonMatch = cleanOutput.match(/\\{[\\s\\S]*\\}/);\n      if (jsonMatch) {\n        cleanOutput = jsonMatch[0];\n      }\n      \n      evaluation = JSON.parse(cleanOutput);\n    } else if (typeof output === 'object') {\n      evaluation = output;\n    } else {\n      throw new Error('Output is neither string nor object');\n    }\n    \n    results.push({\n      json: {\n        candidateName: evaluation.candidateName || 'Unknown Candidate',\n        overallScore: evaluation.overallScore || 0,\n        skillsScore: evaluation.skillsScore || 0,\n        experienceScore: evaluation.experienceScore || 0,\n        educationScore: evaluation.educationScore || 0,\n        recommendation: evaluation.recommendation || 'NO_MATCH',\n        strengths: evaluation.strengths || [],\n        concerns: evaluation.concerns || [],\n        summary: evaluation.summary || 'No summary available'\n      }\n    });\n  } catch (error) {\n    // Still include failed parses with error info\n    results.push({\n      json: {\n        candidateName: '⚠️ Parse Error',\n        overallScore: 0,\n        skillsScore: 0,\n        experienceScore: 0,\n        educationScore: 0,\n        recommendation: 'ERROR',\n        strengths: [],\n        concerns: [`Parse error: ${error.message}`],\n        summary: `Failed to parse AI output. Raw output: ${JSON.stringify(item.json.output).substring(0, 200)}...`,\n        parseError: true\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "0cf6a6e0-8b37-49e7-8cb7-6fe6a0135494",
+      "name": "Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all candidate results into one summary\nconst items = $input.all();\n\nlet emailBody = `\n<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; }\n    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }\n    .candidate { background: #f9f9f9; margin: 20px 0; padding: 25px; border-radius: 8px; border-left: 5px solid #667eea; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }\n    .score-container { display: flex; flex-wrap: wrap; gap: 10px; margin: 15px 0; }\n    .score-box { background: white; padding: 12px 20px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); flex: 1; min-width: 120px; text-align: center; }\n    .score-box strong { display: block; font-size: 12px; color: #666; margin-bottom: 5px; }\n    .score-value { font-size: 24px; font-weight: bold; color: #667eea; }\n    .strong-match { border-left-color: #10b981; }\n    .good-match { border-left-color: #3b82f6; }\n    .moderate-match { border-left-color: #f59e0b; }\n    .weak-match { border-left-color: #ef4444; }\n    .no-match { border-left-color: #6b7280; }\n    .error { border-left-color: #dc2626; background: #fef2f2; }\n    .recommendation-badge { display: inline-block; background: #667eea; color: white; padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; margin: 10px 0; }\n    .strong-match .recommendation-badge { background: #10b981; }\n    .good-match .recommendation-badge { background: #3b82f6; }\n    .moderate-match .recommendation-badge { background: #f59e0b; }\n    .weak-match .recommendation-badge { background: #ef4444; }\n    .no-match .recommendation-badge { background: #6b7280; }\n    .error .recommendation-badge { background: #dc2626; }\n    .section-title { color: #667eea; font-size: 16px; font-weight: bold; margin: 20px 0 10px 0; border-bottom: 2px solid #667eea; padding-bottom: 5px; }\n    .strengths-title { color: #10b981; border-bottom-color: #10b981; }\n    .concerns-title { color: #ef4444; border-bottom-color: #ef4444; }\n    ul { padding-left: 20px; margin: 10px 0; }\n    li { margin: 8px 0; line-height: 1.5; }\n    .summary-box { background: white; padding: 20px; border-radius: 6px; border-left: 3px solid #667eea; margin: 15px 0; line-height: 1.8; }\n    .footer { text-align: center; margin-top: 40px; padding: 25px; color: #666; font-size: 12px; border-top: 2px solid #ddd; background: #f9f9f9; border-radius: 0 0 8px 8px; }\n    .candidate-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; }\n    .candidate-name { font-size: 22px; font-weight: bold; color: #333; margin: 0; }\n    .file-info { color: #666; font-size: 13px; margin: 5px 0; }\n  </style>\n</head>\n<body>\n  <div class=\"header\">\n    <h1>📋 Resume Screening Report</h1>\n    <p style=\"font-size: 16px; margin: 10px 0 0 0;\">AI-Powered Candidate Evaluation</p>\n  </div>\n  \n  <div style=\"padding: 20px;\">\n    <h2 style=\"color: #667eea;\">Summary: ${items.length} Candidate${items.length > 1 ? 's' : ''} Evaluated</h2>\n`;\n\nfor (let i = 0; i < items.length; i++) {\n  const candidate = items[i].json;\n  const recommendationClass = (candidate.recommendation || '').toLowerCase().replace('_', '-');\n  const isError = candidate.parseError === true;\n  \n  emailBody += `\n    <div class=\"candidate ${recommendationClass} ${isError ? 'error' : ''}\">\n      <div class=\"candidate-header\">\n        <div>\n          <h3 class=\"candidate-name\">🎯 ${candidate.candidateName}</h3>\n          \n        </div>\n        <span class=\"recommendation-badge\">${candidate.recommendation.replace('_', ' ')}</span>\n      </div>\n      \n      <div class=\"score-container\">\n        <div class=\"score-box\">\n          <strong>Overall Score</strong>\n          <div class=\"score-value\">${candidate.overallScore}</div>\n        </div>\n        <div class=\"score-box\">\n          <strong>Skills</strong>\n          <div class=\"score-value\">${candidate.skillsScore}</div>\n        </div>\n        <div class=\"score-box\">\n          <strong>Experience</strong>\n          <div class=\"score-value\">${candidate.experienceScore}</div>\n        </div>\n        <div class=\"score-box\">\n          <strong>Education</strong>\n          <div class=\"score-value\">${candidate.educationScore}</div>\n        </div>\n      </div>\n  `;\n  \n  if (!isError) {\n    emailBody += `\n      <h4 class=\"section-title strengths-title\">✅ Strengths</h4>\n      <ul>\n    `;\n    \n    if (candidate.strengths && candidate.strengths.length > 0) {\n      candidate.strengths.forEach(strength => {\n        emailBody += `        <li>${strength}</li>\\n`;\n      });\n    } else {\n      emailBody += '        <li>No strengths identified</li>';\n    }\n    \n    emailBody += `\n      </ul>\n      \n      <h4 class=\"section-title concerns-title\">⚠️ Concerns</h4>\n      <ul>\n    `;\n    \n    if (candidate.concerns && candidate.concerns.length > 0) {\n      candidate.concerns.forEach(concern => {\n        emailBody += `        <li>${concern}</li>\\n`;\n      });\n    } else {\n      emailBody += '        <li>No concerns identified</li>';\n    }\n    \n    emailBody += `\n      </ul>\n      \n      <h4 class=\"section-title\">📝 Summary</h4>\n      <div class=\"summary-box\">${candidate.summary}</div>\n    `;\n  } else {\n    emailBody += `\n      <div class=\"summary-box\" style=\"border-left-color: #dc2626; background: #fef2f2;\">\n        <strong>⚠️ Error Processing This Resume</strong><br><br>\n        ${candidate.summary}\n      </div>\n    `;\n  }\n  \n  emailBody += `\n    </div>\n  `;\n}\n\nemailBody += `\n  </div>\n  \n  <div class=\"footer\">\n    <p>🤖 <strong>This is an automated screening report generated by AI Resume Screener</strong></p>\n    <p>Generated on ${new Date().toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>\n  </div>\n</body>\n</html>\n`;\n\nreturn [{\n  json: {\n    emailBody: emailBody,\n    totalCandidates: items.length,\n    successfulEvaluations: items.filter(item => !item.json.parseError).length,\n    failedEvaluations: items.filter(item => item.json.parseError).length\n  }\n}];"
+      },
+      "id": "86e68c4d-b18e-4870-b273-ee20d315667f",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email || 'ajeeshchandran@gmail.com' }}",
+        "subject": "=Resume Screening Report - {{ $('Aggregate Results').item.json.totalCandidates }} Candidate(s)",
+        "message": "={{ $json.emailBody }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "b710ee94-99e5-49e8-8e0e-86869a4bcea4",
+      "name": "Send Email Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1776,
+        -144
+      ],
+      "webhookId": "1dbb389c-9f2f-4264-af5f-8f203f6f1dc2",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "Y2Y2PcEohve0A8ci",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "resume-text-assignment",
+              "name": "resumeText",
+              "type": "string",
+              "value": "={{ $json.text }}"
+            },
+            {
+              "id": "filename-assignment",
+              "name": "filename",
+              "type": "string",
+              "value": "={{ $json.filename }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0c4c6320-64e0-461c-9b39-9e38786527cd",
+      "name": "Resume Text",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        400,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "jd-text-assignment",
+              "name": "jdText",
+              "type": "string",
+              "value": "={{ $json.text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4e39c581-959b-4ccf-aefa-eee97dabdc28",
+      "name": "JD Text",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        416,
+        -32
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenAI Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Resume Screening",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Resume Screening": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Send Email Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge JD into Loop": {
+      "main": [
+        [
+          {
+            "node": "AI Resume Screening",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Resume": {
+      "main": [
+        [
+          {
+            "node": "Resume Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Split Resumes": {
+      "main": [
+        [
+          {
+            "node": "Extract Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Job Description": {
+      "main": [
+        [
+          {
+            "node": "JD Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume Submission Form": {
+      "main": [
+        [
+          {
+            "node": "Extract Job Description",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code: Split Resumes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume Text": {
+      "main": [
+        [
+          {
+            "node": "Merge JD into Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JD Text": {
+      "main": [
+        [
+          {
+            "node": "Merge JD into Loop",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8ea0c2ba-f612-4520-b932-467f251ce79f",
+  "meta": {
+    "instanceId": "2da22c8578c6a673289fef1b4f7753744ea1c390fd48fd3eeaad8ccc247759be"
+  },
+  "id": "rASK08NByklMUWmC",
+  "tags": []
+}
